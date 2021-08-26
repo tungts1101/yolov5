@@ -43,12 +43,15 @@ def generate_point_cloud_from_depth(depht_val,img_width,img_height,depth_thresho
     # ===== convert numpy array to open3d image =====
     image = o3d.geometry.Image(depht_val.astype(np.uint16))
     intrinsic_mat = o3d.camera.PinholeCameraIntrinsic(img_width, img_height, 475.065948, 475.065857, 315.944855, 245.287079)
-    pcd = o3d.geometry.PointCloud.create_from_depth_image(image, intrinsic_mat, depth_scale=1.0)
+    pcd = o3d.geometry.PointCloud.create_from_depth_image(image, intrinsic_mat, depth_scale=1.0, project_valid_depth_only=True)
+    # pcd.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
 
     if use_voxel_downsample:
         pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
     if is_visualize:
         o3d.visualization.draw_geometries([pcd])
+    
+    pcd.points = o3d.utility.Vector3dVector(np.asarray(pcd.points) * np.array([-1, -1 , 1]))
 
     pcd_points = np.asarray(pcd.points)
     if len(pcd_points) == 0:
@@ -102,8 +105,8 @@ def generate_point_cloud_from_depth(depht_val,img_width,img_height,depth_thresho
         return ((p0 - points)**2).sum(axis=1)
 
     def farthest_point_sampling(pts, k):
-        if len(pts) < k:
-            return [i for i in range(len(pts))] + [np.random.randint(len(pts)) for _ in range(k - len(pts))]
+        # if len(pts) < k:
+        #     return [i for i in range(len(pts))] + [np.random.randint(len(pts)) for _ in range(k - len(pts))]
 
         indices = np.zeros((k, ), dtype=np.uint32)
         indices[0] = np.random.randint(len(pts))
@@ -113,21 +116,51 @@ def generate_point_cloud_from_depth(depht_val,img_width,img_height,depth_thresho
             min_distances = np.minimum(min_distances, cal_dis(pts[indices[i]], pts))
         return indices
 
-    indices = farthest_point_sampling(pcd_points, 1024)
-    pcd.points = o3d.utility.Vector3dVector([pcd_points[i] for i in indices])
+    if len(pcd_points) < 1024:
+        obb = pcd.get_oriented_bounding_box()
+        center = obb.get_center()
+        max_bound = obb.get_max_bound()
+        min_bound = obb.get_min_bound()
+        radius = ((max_bound - min_bound) / 2.0) * 0.5
+
+        rd_points = 2 * radius * np.random.random_sample((1024 - len(pcd_points), 3)) + (center - radius)
+        pcd_points = np.vstack((pcd_points, rd_points))
+        pcd.points = o3d.utility.Vector3dVector(pcd_points)
+
+        # o3d.visualization.draw_geometries([pcd])
+    else:
+        indices = farthest_point_sampling(pcd_points, 1024)
+        pcd.points = o3d.utility.Vector3dVector([pcd_points[i] for i in indices])
+
+    # assert len(pcd_points) == 1024
+    # pcd.transform(np.linalg.inv(np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])))
 
     pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=dbscan_eps, max_nn=10))
     pcd.orient_normals_towards_camera_location(camera_location=np.array([0.0, 0.0, 0.0]))
+
+    # o3d.visualization.draw_geometries([pcd])
+    # print(np.asarray(pcd.points)[:10, :])
+    # print("======")
+    # print(np.asarray(pcd.normals)[:10, :])
+    # print("######")
+
+    # normalize by obb
+    obb = pcd.get_oriented_bounding_box()
+    rotate_mat_transpose = obb.R.transpose()
+    pcd.rotate(rotate_mat_transpose, obb.get_center())
+    # pcd.rotate(obb.R, obb.get_center())
+    # o3d.visualization.draw_geometries([pcd])
+
+    # print(np.asarray(pcd.points)[:10, :])
+    # print("======")
+    # print(np.asarray(pcd.normals)[:10, :])
+    # print("######")
 
     norm = np.linalg.norm(pcd.points)
     pcd.points = o3d.utility.Vector3dVector(np.asarray(pcd.points / norm))
 
     if is_visualize:
         o3d.visualization.draw_geometries([pcd])
-
-    # print(np.asarray(pcd.points)[:30, :])
-    # print("======")
-    # print(np.asarray(pcd.normals)[:30, :])
 
     return pcd
 
@@ -174,73 +207,79 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
             if not os.path.exists(subfolder):
                 os.makedirs(subfolder)
             
-            dataset = LoadImages(os.path.join(filepath, dir), img_size=imgsz, stride=stride, auto=pt)
-            # Run inference
-            if pt and device.type != 'cpu':
-                model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
-            t0 = time.time()
-            for path, img, im0s, _ in dataset:
-                if onnx:
-                    img = img.astype('float32')
-                else:
-                    img = torch.from_numpy(img).to(device)
-                    img = img.half() if half else img.float()  # uint8 to fp16/32
-                img = img / 255.0  # 0 - 255 to 0.0 - 1.0
-                if len(img.shape) == 3:
-                    img = img[None]  # expand for batch dim
+            try:
+                dataset = LoadImages(os.path.join(filepath, dir), img_size=imgsz, stride=stride, auto=pt)
+                # Run inference
+                if pt and device.type != 'cpu':
+                    model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
+                t0 = time.time()
+                for path, img, im0s, _ in dataset:
+                    if onnx:
+                        img = img.astype('float32')
+                    else:
+                        img = torch.from_numpy(img).to(device)
+                        img = img.half() if half else img.float()  # uint8 to fp16/32
+                    img = img / 255.0  # 0 - 255 to 0.0 - 1.0
+                    if len(img.shape) == 3:
+                        img = img[None]  # expand for batch dim
 
-                # Inference
-                pred = model(img, augment=augment)[0]
+                    # Inference
+                    pred = model(img, augment=augment)[0]
 
-                # NMS
-                pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=1)[0]
+                    # NMS
+                    pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=1)[0]
 
-                # Process predictions
-                gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-                if len(pred):
-                    # Rescale boxes from img_size to im0 size
-                    pred[:, :4] = scale_coords(img.shape[2:], pred[:, :4], im0s.shape).round()
+                    # Process predictions
+                    gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+                    if len(pred):
+                        # Rescale boxes from img_size to im0 size
+                        pred[:, :4] = scale_coords(img.shape[2:], pred[:, :4], im0s.shape).round()
 
-                    # Write results
-                    for *xyxy, _, _ in reversed(pred):
-                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                        
-                        # im0 = plot_one_box(xyxy, im0s, label='Hand', color=colors(0, True), line_width=2)
-                        # cv2.imshow("img", im0)
-                        # cv2.waitKey(0)
+                        # Write results
+                        for *xyxy, _, _ in reversed(pred):
+                            xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                            
+                            # im0 = plot_one_box(xyxy, im0s, label='Hand', color=colors(0, True), line_width=2)
+                            # cv2.imshow("img", im0)
+                            # cv2.waitKey(0)
 
-                        depth_path = path.replace('color', 'depth')
-                        depth_path = depth_path.replace('jpeg', 'png')
+                            depth_path = path.replace('color', 'depth')
+                            depth_path = depth_path.replace('jpeg', 'png')
 
-                        depth_path = depth_path.replace('\\', '/')
-                        file_name = depth_path.split('/')[-1][:-4]
+                            depth_path = depth_path.replace('\\', '/')
+                            file_name = depth_path.split('/')[-1][:-4]
 
-                        pcd_filepath = os.path.join(pcd_root, subject, action, seq_idx, file_name + '.ply')
-                        if not os.path.exists(pcd_filepath):
-                            open(pcd_filepath, 'w').close()
-                        
-                        # print(pcd_filepath)
+                            pcd_filepath = os.path.join(pcd_root, subject, action, seq_idx, file_name + '.ply')
+                            if not os.path.exists(pcd_filepath):
+                                open(pcd_filepath, 'w').close()
+                            
+                            # print(pcd_filepath)
 
-                        depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
-                        img_height, img_width = depth_img.shape
+                            depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+                            img_height, img_width = depth_img.shape
 
-                        x_center_norm = xywh[0]
-                        y_center_norm = xywh[1]
-                        x_width_norm = xywh[2]
-                        y_height_norm = xywh[3]
+                            x_center_norm = xywh[0]
+                            y_center_norm = xywh[1]
+                            x_width_norm = xywh[2]
+                            y_height_norm = xywh[3]
 
-                        center = (img_width * x_center_norm, img_height * y_center_norm)
-                        start_point = (center[0] - img_width * x_width_norm / 2, center[1] - img_height * y_height_norm / 2)
-                        end_point = (center[0] + img_width * x_width_norm / 2, center[1] + img_height * y_height_norm / 2)
+                            center = (img_width * x_center_norm, img_height * y_center_norm)
+                            start_point = (center[0] - img_width * x_width_norm / 2, center[1] - img_height * y_height_norm / 2)
+                            end_point = (center[0] + img_width * x_width_norm / 2, center[1] + img_height * y_height_norm / 2)
 
-                        crop_depth = depth_img[int(start_point[1]):int(end_point[1]), int(start_point[0]):int(end_point[0])].copy()
+                            crop_depth = depth_img[int(start_point[1]):int(end_point[1]), int(start_point[0]):int(end_point[0])].copy()
 
-                        pcd = generate_point_cloud_from_depth(crop_depth, img_width, img_height, is_visualize=False)
+                            # if action == 'use_calculator':
+                            #     pcd = generate_point_cloud_from_depth(crop_depth, img_width, img_height, is_visualize=True)
+                            # else:
+                            pcd = generate_point_cloud_from_depth(crop_depth, img_width, img_height, is_visualize=False)
 
-                        if pcd != None:
-                            o3d.io.write_point_cloud(pcd_filepath, pcd)
-                        else:
-                            print(pcd_filepath)
+                            if pcd != None:
+                                o3d.io.write_point_cloud(pcd_filepath, pcd)
+                            else:
+                                print(pcd_filepath)
+            except Exception as e:
+                print(e)
 
             print(f'Done. ({time.time() - t0:.3f}s) :: ' + os.path.join(filepath, dir))
 
