@@ -17,6 +17,7 @@ import torch
 
 import cv2
 import open3d as o3d
+from torch.utils.data import dataset
 
 FILE = Path(__file__).absolute()
 sys.path.append(FILE.parents[0].as_posix())  # add yolov5/ to path
@@ -31,32 +32,39 @@ from collections import Counter
 from sklearn.cluster import DBSCAN
 import matplotlib.pyplot as plt
 
-def generate_point_cloud_from_depth(depht_val,img_width,img_height,depth_threshold=550,is_visualize=False, voxel_size=5.0, dbscan_eps=8.0,use_voxel_downsample=True):
+subject_names = ["Subject_1", "Subject_2", "Subject_3", "Subject_4", "Subject_5", "Subject_6"]
+# gesture_names = ['charge_cell_phone','clean_glasses','close_juice_bottle','close_liquid_soap','close_milk','close_peanut_butter','drink_mug','flip_pages','flip_sponge', 'give_card',
+# 'give_coin','handshake','high_five','light_candle','open_juice_bottle','open_letter','open_liquid_soap','open_milk','open_peanut_butter','open_soda_can','open_wallet','pour_juice_bottle'
+# 'pour_liquid_soap','pour_milk','pour_wine','prick','put_salt','put_sugar','put_tea_bag','read_letter','receive_coin', 'scoop_spoon','scratch_sponge','sprinkle','squeeze_paper',
+# 'squeeze_sponge','stir','take_letter_from_enveloppe','tear_paper','toast_wine','unfold_glasses','use_calculator','use_flash','wash_sponge','write']
+gesture_names = ["put_salt",'charge_cell_phone','clean_glasses']
+
+def generate_point_cloud_from_depth(depth_val,img_width,img_height,depth_threshold=550,is_visualize=False, voxel_size=3.0, dbscan_eps=8.0,use_voxel_downsample=True):
     # ===== crop all parts too far from camera =====
-    depht_val[depht_val>depth_threshold] = 0
+    depth_val[depth_val>depth_threshold] = 0
 
     if is_visualize:
-        vis_depth = depht_val / 256.0
+        vis_depth = depth_val / 256.0
         cv2.imshow("Depth image", vis_depth)
         cv2.waitKey(0)
 
     # ===== convert numpy array to open3d image =====
-    image = o3d.geometry.Image(depht_val.astype(np.uint16))
+    image = o3d.geometry.Image(depth_val.astype(np.uint16))
     intrinsic_mat = o3d.camera.PinholeCameraIntrinsic(img_width, img_height, 475.065948, 475.065857, 315.944855, 245.287079)
     pcd = o3d.geometry.PointCloud.create_from_depth_image(image, intrinsic_mat, depth_scale=1.0, project_valid_depth_only=True)
     # pcd.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-
+    
     if use_voxel_downsample:
         pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
-    if is_visualize:
-        o3d.visualization.draw_geometries([pcd])
-    
-    pcd.points = o3d.utility.Vector3dVector(np.asarray(pcd.points) * np.array([-1, -1 , 1]))
+    # if is_visualize:
+    #     o3d.visualization.draw_geometries([pcd])
 
     pcd_points = np.asarray(pcd.points)
     if len(pcd_points) == 0:
-        print("Cannot generate point cloud")
-        return None
+        print("Not enough point")
+        return (None, None)
+
+    pcd_points *= np.array([-1, -1 , 1])
 
     # with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
         # labels = np.array(pcd.cluster_dbscan(eps=dbscan_eps, min_points=10, print_progress=True))
@@ -64,16 +72,16 @@ def generate_point_cloud_from_depth(depht_val,img_width,img_height,depth_thresho
     labels = DBSCAN(eps=dbscan_eps,min_samples=10,algorithm='kd_tree').fit(pcd_points).labels_
 
     if len(labels) == 0:
-        print("Cannot find any label")
-        return None
+        print("Cannot cluster point cloud")
+        return (None, None)
 
-    if is_visualize:
-        max_label = labels.max()
-        print(f"point cloud has {max_label + 1} clusters")
-        colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
-        colors[labels < 0] = 0
-        pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
-        o3d.visualization.draw_geometries([pcd])
+    # if is_visualize:
+    #     max_label = labels.max()
+    #     print(f"point cloud has {max_label + 1} clusters")
+    #     colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    #     colors[labels < 0] = 0
+    #     pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    #     o3d.visualization.draw_geometries([pcd])
 
     counter = Counter(labels)
     cluster_distance = {}
@@ -97,16 +105,16 @@ def generate_point_cloud_from_depth(depht_val,img_width,img_height,depth_thresho
         pcd.points = o3d.utility.Vector3dVector([point for (i, point) in enumerate(pcd_points) if labels[i] == hand_label])
         pcd_points = np.asarray(pcd.points)
 
-        if is_visualize:
-            o3d.visualization.draw_geometries([pcd])
+        # if is_visualize:
+        #     o3d.visualization.draw_geometries([pcd])
 
     # farthest point sampling
     def cal_dis(p0, points):
         return ((p0 - points)**2).sum(axis=1)
 
     def farthest_point_sampling(pts, k):
-        # if len(pts) < k:
-        #     return [i for i in range(len(pts))] + [np.random.randint(len(pts)) for _ in range(k - len(pts))]
+        if len(pts) < k:
+            return [i for i in range(len(pts))] + [np.random.randint(len(pts)) for _ in range(k - len(pts))]
 
         indices = np.zeros((k, ), dtype=np.uint32)
         indices[0] = np.random.randint(len(pts))
@@ -116,23 +124,22 @@ def generate_point_cloud_from_depth(depht_val,img_width,img_height,depth_thresho
             min_distances = np.minimum(min_distances, cal_dis(pts[indices[i]], pts))
         return indices
 
-    if len(pcd_points) < 1024:
-        obb = pcd.get_oriented_bounding_box()
-        center = obb.get_center()
-        max_bound = obb.get_max_bound()
-        min_bound = obb.get_min_bound()
-        radius = ((max_bound - min_bound) / 2.0) * 0.5
+    # if len(pcd_points) < 1024:
+    #     obb = pcd.get_oriented_bounding_box()
+    #     center = obb.get_center()
+    #     max_bound = obb.get_max_bound()
+    #     min_bound = obb.get_min_bound()
+    #     radius = ((max_bound - min_bound) / 2.0) * 0.5
 
-        rd_points = 2 * radius * np.random.random_sample((1024 - len(pcd_points), 3)) + (center - radius)
-        pcd_points = np.vstack((pcd_points, rd_points))
-        pcd.points = o3d.utility.Vector3dVector(pcd_points)
+    #     rd_points = 2 * radius * np.random.random_sample((1024 - len(pcd_points), 3)) + (center - radius)
+    #     pcd_points = np.vstack((pcd_points, rd_points))
+    #     pcd.points = o3d.utility.Vector3dVector(pcd_points)
 
-        # o3d.visualization.draw_geometries([pcd])
-    else:
-        indices = farthest_point_sampling(pcd_points, 1024)
-        pcd.points = o3d.utility.Vector3dVector([pcd_points[i] for i in indices])
+    #     # o3d.visualization.draw_geometries([pcd])
+    # else:
+    indices = farthest_point_sampling(pcd_points, 1024)
+    pcd.points = o3d.utility.Vector3dVector([pcd_points[i] for i in indices])
 
-    # assert len(pcd_points) == 1024
     # pcd.transform(np.linalg.inv(np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])))
 
     pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=dbscan_eps, max_nn=10))
@@ -145,24 +152,25 @@ def generate_point_cloud_from_depth(depht_val,img_width,img_height,depth_thresho
     # print("######")
 
     # normalize by obb
-    obb = pcd.get_oriented_bounding_box()
-    rotate_mat_transpose = obb.R.transpose()
-    pcd.rotate(rotate_mat_transpose, obb.get_center())
-    # pcd.rotate(obb.R, obb.get_center())
-    # o3d.visualization.draw_geometries([pcd])
+    # obb = pcd.get_oriented_bounding_box()
+    # rotate_mat_transpose = obb.R.transpose()
+    # pcd.rotate(rotate_mat_transpose, obb.get_center())
+
+    # if is_visualize:
+    #     o3d.visualization.draw_geometries([pcd])
 
     # print(np.asarray(pcd.points)[:10, :])
     # print("======")
     # print(np.asarray(pcd.normals)[:10, :])
     # print("######")
 
-    norm = np.linalg.norm(pcd.points)
-    pcd.points = o3d.utility.Vector3dVector(np.asarray(pcd.points / norm))
+    # norm = np.linalg.norm(pcd.points)
+    # pcd.points = o3d.utility.Vector3dVector(np.asarray(pcd.points / norm))
 
     if is_visualize:
         o3d.visualization.draw_geometries([pcd])
 
-    return pcd
+    return (pcd, pcd.get_oriented_bounding_box())
 
 @torch.no_grad()
 def run(weights='yolov5s.pt',  # model.pt path(s)
@@ -175,9 +183,10 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         agnostic_nms=False,  # class-agnostic NMS
         augment=False,  # augmented inference
         half=False,  # use FP16 half-precision inference
+        save_dir='../../processed'
         ):
 
-    pcd_root = '../../point_cloud_dataset_norm_v3'
+    # pcd_save_dir = '../../point_cloud_dataset_norm_v3'
 
     # Initialize
     # set_logging()
@@ -196,92 +205,113 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         model.half()  # to FP16
     imgsz = check_img_size(imgsz, s=stride)  # check image size
 
-    for filepath, subdirs, _ in os.walk(source):
-        for dir in subdirs:
-            if dir != "color": continue
-            filepath = filepath.replace('\\', '/')
+    video_dir = os.path.join(source, 'Video_files')
+    hand_annotation = os.path.join(source, 'Hand_pose_annotation_v1')
 
-            subject, action, seq_idx = filepath[len(source)+1:].split('/')[:3]
-            subfolder = os.path.join(pcd_root, subject, action, seq_idx)
+    for subject in subject_names:
+        time1 = time.time()
+        for gesture in gesture_names:
+            if not os.path.exists(os.path.join(video_dir, subject, gesture)): continue
+            for seq_idx in os.listdir(os.path.join(video_dir, subject, gesture)):
+                # read ground truth joint
+                gt_ws = np.loadtxt(os.path.join(hand_annotation, subject, gesture, seq_idx, 'skeleton.txt')).astype(np.float32)
+                gt_ws = gt_ws[:,1:]
 
-            if not os.path.exists(subfolder):
-                os.makedirs(subfolder)
-            
-            try:
-                dataset = LoadImages(os.path.join(filepath, dir), img_size=imgsz, stride=stride, auto=pt)
-                # Run inference
-                if pt and device.type != 'cpu':
-                    model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
-                t0 = time.time()
-                for path, img, im0s, _ in dataset:
-                    if onnx:
-                        img = img.astype('float32')
-                    else:
+                frame_num = gt_ws.shape[0]
+                
+                points = np.zeros((frame_num, 1024, 6)).astype(np.float32) # xyz + norm for each point
+                volume_rotate = np.zeros((frame_num, 3, 3)).astype(np.float32) # rotation matrix
+                bound_obb = np.zeros((frame_num, 2, 3)).astype(np.float32) # min bound & max bound of rotation matrix
+                gt_xyz = np.zeros((frame_num, 63)).astype(np.float32)
+                valid = [False for _ in range(frame_num)]
+
+                image_dir = os.path.join(video_dir, subject, gesture, seq_idx, 'color')
+
+                try:
+                    dataset = LoadImages(image_dir, img_size=imgsz, stride=stride, auto=pt)
+                    if pt and device.type != 'cpu':
+                        model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
+
+                    t0 = time.time()
+                    for path, img, im0s, _ in dataset:
                         img = torch.from_numpy(img).to(device)
                         img = img.half() if half else img.float()  # uint8 to fp16/32
-                    img = img / 255.0  # 0 - 255 to 0.0 - 1.0
-                    if len(img.shape) == 3:
-                        img = img[None]  # expand for batch dim
+                        img = img / 255.0  # 0 - 255 to 0.0 - 1.0
+                        if len(img.shape) == 3:
+                            img = img[None]  # expand for batch dim
 
-                    # Inference
-                    pred = model(img, augment=augment)[0]
+                        # Inference
+                        pred = model(img, augment=augment)[0]
+                        # NMS
+                        pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=1)[0]
+                        if len(pred):
+                            pred[:, :4] = scale_coords(img.shape[2:], pred[:, :4], im0s.shape).round()
+                            gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+                            for *xyxy, _, _ in reversed(pred):
+                                xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                                # im0 = plot_one_box(xyxy, im0s, label='Hand', color=colors(0, True), line_width=2)
+                                # cv2.imshow("img", im0)
+                                # cv2.waitKey(0)
 
-                    # NMS
-                    pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=1)[0]
+                                depth_path = path.replace('color', 'depth')
+                                depth_path = depth_path.replace('jpeg', 'png')
 
-                    # Process predictions
-                    gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-                    if len(pred):
-                        # Rescale boxes from img_size to im0 size
-                        pred[:, :4] = scale_coords(img.shape[2:], pred[:, :4], im0s.shape).round()
+                                depth_path = depth_path.replace('\\', '/')
 
-                        # Write results
-                        for *xyxy, _, _ in reversed(pred):
-                            xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                            
-                            # im0 = plot_one_box(xyxy, im0s, label='Hand', color=colors(0, True), line_width=2)
-                            # cv2.imshow("img", im0)
-                            # cv2.waitKey(0)
+                                depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+                                img_height, img_width = depth_img.shape
 
-                            depth_path = path.replace('color', 'depth')
-                            depth_path = depth_path.replace('jpeg', 'png')
+                                x_center_norm = xywh[0]
+                                y_center_norm = xywh[1]
+                                x_width_norm = xywh[2]
+                                y_height_norm = xywh[3]
 
-                            depth_path = depth_path.replace('\\', '/')
-                            file_name = depth_path.split('/')[-1][:-4]
+                                center = (img_width * x_center_norm, img_height * y_center_norm)
+                                start_point = (center[0] - img_width * x_width_norm / 2, center[1] - img_height * y_height_norm / 2)
+                                end_point = (center[0] + img_width * x_width_norm / 2, center[1] + img_height * y_height_norm / 2)
 
-                            pcd_filepath = os.path.join(pcd_root, subject, action, seq_idx, file_name + '.ply')
-                            if not os.path.exists(pcd_filepath):
-                                open(pcd_filepath, 'w').close()
-                            
-                            # print(pcd_filepath)
+                                crop_depth = depth_img[int(start_point[1]):int(end_point[1]), int(start_point[0]):int(end_point[0])].copy()
 
-                            depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
-                            img_height, img_width = depth_img.shape
+                                pcd, obb = generate_point_cloud_from_depth(crop_depth, img_width, img_height)
 
-                            x_center_norm = xywh[0]
-                            y_center_norm = xywh[1]
-                            x_width_norm = xywh[2]
-                            y_height_norm = xywh[3]
+                                if pcd != None:
+                                    file_name = depth_path.split('/')[-1][:-4]
+                                    frame_idx = int(file_name.split('.')[0].split('_')[1])
 
-                            center = (img_width * x_center_norm, img_height * y_center_norm)
-                            start_point = (center[0] - img_width * x_width_norm / 2, center[1] - img_height * y_height_norm / 2)
-                            end_point = (center[0] + img_width * x_width_norm / 2, center[1] + img_height * y_height_norm / 2)
+                                    valid[frame_idx] = True
+                                    volume_rotate[frame_idx] = obb.R
 
-                            crop_depth = depth_img[int(start_point[1]):int(end_point[1]), int(start_point[0]):int(end_point[0])].copy()
+                                    min_bound = obb.get_min_bound()
+                                    max_bound = obb.get_max_bound()
+                                    bound_obb[frame_idx] = np.asarray([min_bound, max_bound])
 
-                            # if action == 'use_calculator':
-                            #     pcd = generate_point_cloud_from_depth(crop_depth, img_width, img_height, is_visualize=True)
-                            # else:
-                            pcd = generate_point_cloud_from_depth(crop_depth, img_width, img_height, is_visualize=False)
+                                    # rotate & normalize point cloud
+                                    pcd.rotate(obb.R.transpose(), obb.get_center())
+                                    pcd_points = np.asarray(pcd.points)
+                                    obb_len = (max_bound - min_bound)
+                                    pcd_points = (pcd_points - min_bound) / obb_len
+                                    points[frame_idx] = np.concatenate((pcd_points, np.asarray(pcd.normals)), axis=1)
 
-                            if pcd != None:
-                                o3d.io.write_point_cloud(pcd_filepath, pcd)
-                            else:
-                                print(pcd_filepath)
-            except Exception as e:
-                print(e)
+                                    # rotate & normalize ground truth
+                                    i_gt_xyz = gt_ws[frame_idx].reshape((21, 3))
+                                    i_gt_xyz = np.matmul(i_gt_xyz, obb.R.transpose())
+                                    i_gt_xyz = (i_gt_xyz - min_bound) / obb_len
+                                    gt_xyz[frame_idx] = i_gt_xyz.flatten()
+                except Exception as e:
+                    print(e)
+                
+                # save files
+                save_seq_path = os.path.join(save_dir, subject, gesture, seq_idx)
+                if not os.path.exists(save_seq_path):
+                    os.makedirs(save_seq_path)
+                
+                np.save(os.path.join(save_seq_path, 'points.npy'), points)
+                np.save(os.path.join(save_seq_path, 'volume_rotate.npy'), volume_rotate)
+                np.save(os.path.join(save_seq_path, 'bound_obb.npy'), bound_obb)
+                np.save(os.path.join(save_seq_path, 'gt_xyz.npy'), gt_xyz)
+                np.save(os.path.join(save_seq_path, 'valid.npy'), valid)
 
-            print(f'Done. ({time.time() - t0:.3f}s) :: ' + os.path.join(filepath, dir))
+        print('Done for {} - {} in {}s'.format(subject, gesture, time.time() - time1))
 
 def parse_opt():
     parser = argparse.ArgumentParser()
@@ -295,6 +325,7 @@ def parse_opt():
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
+    parser.add_argument('--save_dir', help='save directory')
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     return opt
