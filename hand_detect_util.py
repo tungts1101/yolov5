@@ -183,7 +183,8 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         agnostic_nms=False,  # class-agnostic NMS
         augment=False,  # augmented inference
         half=False,  # use FP16 half-precision inference
-        save_dir='../../processed'
+        save_dir='../../processed',
+        override=False
         ):
 
     # pcd_save_dir = '../../point_cloud_dataset_norm_v3'
@@ -213,6 +214,13 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         for gesture in gesture_names:
             if not os.path.exists(os.path.join(video_dir, subject, gesture)): continue
             for seq_idx in os.listdir(os.path.join(video_dir, subject, gesture)):
+                # save files
+                save_seq_path = os.path.join(save_dir, subject, gesture, seq_idx)
+                if not override and os.path.exists(save_seq_path): continue
+
+                if not os.path.exists(save_seq_path):
+                    os.makedirs(save_seq_path)
+
                 # read ground truth joint
                 gt_ws = np.loadtxt(os.path.join(hand_annotation, subject, gesture, seq_idx, 'skeleton.txt')).astype(np.float32)
                 gt_ws = gt_ws[:,1:]
@@ -300,11 +308,6 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                 except Exception as e:
                     print(e)
                 
-                # save files
-                save_seq_path = os.path.join(save_dir, subject, gesture, seq_idx)
-                if not os.path.exists(save_seq_path):
-                    os.makedirs(save_seq_path)
-                
                 np.save(os.path.join(save_seq_path, 'points.npy'), points)
                 np.save(os.path.join(save_seq_path, 'volume_rotate.npy'), volume_rotate)
                 np.save(os.path.join(save_seq_path, 'bound_obb.npy'), bound_obb)
@@ -325,7 +328,8 @@ def parse_opt():
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
-    parser.add_argument('--save_dir', help='save directory')
+    parser.add_argument('--save_dir', default='../../processed', help='save directory')
+    parser.add_argument('--override', type=bool, default=False)
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     return opt
