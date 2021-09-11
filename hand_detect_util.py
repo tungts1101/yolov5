@@ -214,6 +214,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         for gesture in gesture_names:
             if not os.path.exists(os.path.join(video_dir, subject, gesture)): continue
             for seq_idx in os.listdir(os.path.join(video_dir, subject, gesture)):
+                if not seq_idx.isnumeric(): continue
                 if not os.path.exists(os.path.join(video_dir, subject, gesture, seq_idx)): continue
                 # save files
                 save_seq_path = os.path.join(save_dir, subject, gesture, seq_idx)
