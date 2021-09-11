@@ -33,11 +33,11 @@ from sklearn.cluster import DBSCAN
 import matplotlib.pyplot as plt
 
 subject_names = ["Subject_1", "Subject_2", "Subject_3", "Subject_4", "Subject_5", "Subject_6"]
-# gesture_names = ['charge_cell_phone','clean_glasses','close_juice_bottle','close_liquid_soap','close_milk','close_peanut_butter','drink_mug','flip_pages','flip_sponge', 'give_card',
-# 'give_coin','handshake','high_five','light_candle','open_juice_bottle','open_letter','open_liquid_soap','open_milk','open_peanut_butter','open_soda_can','open_wallet','pour_juice_bottle'
-# 'pour_liquid_soap','pour_milk','pour_wine','prick','put_salt','put_sugar','put_tea_bag','read_letter','receive_coin', 'scoop_spoon','scratch_sponge','sprinkle','squeeze_paper',
-# 'squeeze_sponge','stir','take_letter_from_enveloppe','tear_paper','toast_wine','unfold_glasses','use_calculator','use_flash','wash_sponge','write']
-gesture_names = ['put_salt','use_calculator','take_letter_from_enveloppe','open_juice_bottle','open_juice_bottle','open_letter','open_liquid_soap','open_milk','open_peanut_butter','open_soda_can','open_wallet']
+gesture_names = ['charge_cell_phone','clean_glasses','close_juice_bottle','close_liquid_soap','close_milk','close_peanut_butter','drink_mug','flip_pages','flip_sponge', 'give_card',
+'give_coin','handshake','high_five','light_candle','open_juice_bottle','open_letter','open_liquid_soap','open_milk','open_peanut_butter','open_soda_can','open_wallet','pour_juice_bottle'
+'pour_liquid_soap','pour_milk','pour_wine','prick','put_salt','put_sugar','put_tea_bag','read_letter','receive_coin', 'scoop_spoon','scratch_sponge','sprinkle','squeeze_paper',
+'squeeze_sponge','stir','take_letter_from_enveloppe','tear_paper','toast_wine','unfold_glasses','use_calculator','use_flash','wash_sponge','write']
+#gesture_names = ['put_salt','use_calculator','take_letter_from_enveloppe','open_juice_bottle','open_juice_bottle','open_letter','open_liquid_soap','open_milk','open_peanut_butter','open_soda_can','open_wallet']
 
 def generate_point_cloud_from_depth(depth_val,img_width,img_height,depth_threshold=550,is_visualize=False, voxel_size=3.0, dbscan_eps=8.0,use_voxel_downsample=True):
     # ===== crop all parts too far from camera =====
@@ -214,6 +214,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
         for gesture in gesture_names:
             if not os.path.exists(os.path.join(video_dir, subject, gesture)): continue
             for seq_idx in os.listdir(os.path.join(video_dir, subject, gesture)):
+                if not os.path.exists(os.path.join(video_dir, subject, gesture, seq_idx)): continue
                 # save files
                 save_seq_path = os.path.join(save_dir, subject, gesture, seq_idx)
                 if not override and os.path.exists(save_seq_path): continue
