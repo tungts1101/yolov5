@@ -210,38 +210,44 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
     hand_annotation = os.path.join(source, 'Hand_pose_annotation_v1')
 
     for subject in subject_names:
+        print("Subject: {}".format(subject))
         time1 = time.time()
         for gesture in gesture_names:
-            if not os.path.exists(os.path.join(video_dir, subject, gesture)): continue
-            for seq_idx in os.listdir(os.path.join(video_dir, subject, gesture)):
-                if not seq_idx.isnumeric(): continue
-                if not os.path.exists(os.path.join(video_dir, subject, gesture, seq_idx)): continue
-                # save files
-                save_seq_path = os.path.join(save_dir, subject, gesture, seq_idx)
-                if not override and os.path.exists(save_seq_path): continue
-
-                if not os.path.exists(save_seq_path):
-                    os.makedirs(save_seq_path)
-
-                # read ground truth joint
-                gt_ws = np.loadtxt(os.path.join(hand_annotation, subject, gesture, seq_idx, 'skeleton.txt')).astype(np.float32)
-                gt_ws = gt_ws[:,1:]
-
-                frame_num = gt_ws.shape[0]
-                
-                points = np.zeros((frame_num, 1024, 6)).astype(np.float32) # xyz + norm for each point
-                volume_rotate = np.zeros((frame_num, 3, 3)).astype(np.float32) # rotation matrix
-                bound_obb = np.zeros((frame_num, 2, 3)).astype(np.float32) # min bound & max bound of rotation matrix
-                gt_xyz = np.zeros((frame_num, 63)).astype(np.float32)
-                valid = [False for _ in range(frame_num)]
-
-                image_dir = os.path.join(video_dir, subject, gesture, seq_idx, 'color')
-
-                try:
+            print("Gesture: {}".format(gesture))
+            try:
+                if not os.path.exists(os.path.join(video_dir, subject, gesture)): continue
+                for seq_idx in os.listdir(os.path.join(video_dir, subject, gesture)):
+                    if not seq_idx.isnumeric(): continue
+                    if not os.path.exists(os.path.join(video_dir, subject, gesture, seq_idx)): continue
+                    # save files
+                    save_seq_path = os.path.join(save_dir, subject, gesture, seq_idx)
+                    if not override and os.path.exists(save_seq_path): continue
+                    filesize = os.path.getsize(os.path.join(hand_annotation, subject, gesture, seq_idx, 'skeleton.txt'))
+                    if filesize == 0: continue
+    
+                    if not os.path.exists(save_seq_path):
+                        os.makedirs(save_seq_path)
+                    
+                    print("Seq idx: {}".format(seq_idx))
+    
+                    # read ground truth joint
+                    gt_ws = np.loadtxt(os.path.join(hand_annotation, subject, gesture, seq_idx, 'skeleton.txt')).astype(np.float32)
+                    gt_ws = gt_ws[:,1:]
+    
+                    frame_num = gt_ws.shape[0]
+                    
+                    points = np.zeros((frame_num, 1024, 6)).astype(np.float32) # xyz + norm for each point
+                    volume_rotate = np.zeros((frame_num, 3, 3)).astype(np.float32) # rotation matrix
+                    bound_obb = np.zeros((frame_num, 2, 3)).astype(np.float32) # min bound & max bound of rotation matrix
+                    gt_xyz = np.zeros((frame_num, 63)).astype(np.float32)
+                    valid = [False for _ in range(frame_num)]
+    
+                    image_dir = os.path.join(video_dir, subject, gesture, seq_idx, 'color')
+    
                     dataset = LoadImages(image_dir, img_size=imgsz, stride=stride, auto=pt)
                     if pt and device.type != 'cpu':
                         model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.parameters())))  # run once
-
+    
                     t0 = time.time()
                     for path, img, im0s, _ in dataset:
                         img = torch.from_numpy(img).to(device)
@@ -249,7 +255,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                         img = img / 255.0  # 0 - 255 to 0.0 - 1.0
                         if len(img.shape) == 3:
                             img = img[None]  # expand for batch dim
-
+    
                         # Inference
                         pred = model(img, augment=augment)[0]
                         # NMS
@@ -262,61 +268,61 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                                 # im0 = plot_one_box(xyxy, im0s, label='Hand', color=colors(0, True), line_width=2)
                                 # cv2.imshow("img", im0)
                                 # cv2.waitKey(0)
-
+    
                                 depth_path = path.replace('color', 'depth')
                                 depth_path = depth_path.replace('jpeg', 'png')
-
+    
                                 depth_path = depth_path.replace('\\', '/')
-
+    
                                 depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
                                 img_height, img_width = depth_img.shape
-
+    
                                 x_center_norm = xywh[0]
                                 y_center_norm = xywh[1]
                                 x_width_norm = xywh[2]
                                 y_height_norm = xywh[3]
-
+    
                                 center = (img_width * x_center_norm, img_height * y_center_norm)
                                 start_point = (center[0] - img_width * x_width_norm / 2, center[1] - img_height * y_height_norm / 2)
                                 end_point = (center[0] + img_width * x_width_norm / 2, center[1] + img_height * y_height_norm / 2)
-
+    
                                 crop_depth = depth_img[int(start_point[1]):int(end_point[1]), int(start_point[0]):int(end_point[0])].copy()
-
+    
                                 pcd, obb = generate_point_cloud_from_depth(crop_depth, img_width, img_height)
-
+    
                                 if pcd != None:
                                     file_name = depth_path.split('/')[-1][:-4]
                                     frame_idx = int(file_name.split('.')[0].split('_')[1])
-
+    
                                     valid[frame_idx] = True
                                     volume_rotate[frame_idx] = obb.R
-
+    
                                     min_bound = obb.get_min_bound()
                                     max_bound = obb.get_max_bound()
                                     bound_obb[frame_idx] = np.asarray([min_bound, max_bound])
-
+    
                                     # rotate & normalize point cloud
                                     pcd.rotate(obb.R.transpose(), obb.get_center())
                                     pcd_points = np.asarray(pcd.points)
                                     obb_len = (max_bound - min_bound)
                                     pcd_points = (pcd_points - min_bound) / obb_len
                                     points[frame_idx] = np.concatenate((pcd_points, np.asarray(pcd.normals)), axis=1)
-
+    
                                     # rotate & normalize ground truth
                                     i_gt_xyz = gt_ws[frame_idx].reshape((21, 3))
                                     i_gt_xyz = np.matmul(i_gt_xyz, obb.R.transpose())
                                     i_gt_xyz = (i_gt_xyz - min_bound) / obb_len
                                     gt_xyz[frame_idx] = i_gt_xyz.flatten()
-                except Exception as e:
-                    print(e)
-                
-                np.save(os.path.join(save_seq_path, 'points.npy'), points)
-                np.save(os.path.join(save_seq_path, 'volume_rotate.npy'), volume_rotate)
-                np.save(os.path.join(save_seq_path, 'bound_obb.npy'), bound_obb)
-                np.save(os.path.join(save_seq_path, 'gt_xyz.npy'), gt_xyz)
-                np.save(os.path.join(save_seq_path, 'valid.npy'), valid)
 
-        print('Done for {} - {} in {}s'.format(subject, gesture, time.time() - time1))
+                    np.save(os.path.join(save_seq_path, 'points.npy'), points)
+                    np.save(os.path.join(save_seq_path, 'volume_rotate.npy'), volume_rotate)
+                    np.save(os.path.join(save_seq_path, 'bound_obb.npy'), bound_obb)
+                    np.save(os.path.join(save_seq_path, 'gt_xyz.npy'), gt_xyz)
+                    np.save(os.path.join(save_seq_path, 'valid.npy'), valid)
+            except Exception as e:
+                print(e)
+
+        print('Done for {} in {}s'.format(subject, time.time() - time1))
 
 def parse_opt():
     parser = argparse.ArgumentParser()
