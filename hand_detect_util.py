@@ -360,35 +360,46 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                                     valid[frame_idx] = True
                                     volume_rotate[frame_idx] = obb.R
 
+                                    # pcd.rotate(obb.R.transpose(), obb.get_center())
+                                    # pcd_points = np.asarray(pcd.points)
+                                    # min_bound = np.min(np.array(pcd_points), axis=0)
+                                    # max_bound = np.max(np.array(pcd_points), axis=0)
+                                    # bound_obb[frame_idx] = np.asarray([min_bound, max_bound])
+                                    # obb_len = max_bound - min_bound + 1e-6
+
+                                    # # min_bound_camcoords = cam_coords(min_bound)
+                                    # # max_bound_camcoords = cam_coords(max_bound)
+                                    # # bound_obb[frame_idx] = np.asarray([min_bound_camcoords, max_bound_camcoords])
+                                    # # obb_len = max_bound_camcoords - min_bound_camcoords + 1e-6
+
+                                    # pcd_normals = np.asarray(pcd.normals)
+                                    # # pcd_points_camcoords = cam_coords(pcd_points)
+
+                                    # # pcd.points = pcd_points_camcoords
+                                    # # pcd.normals = pcd_normal_camcoords
+                                    # # pcd_camcoords = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pcd_points))
+                                    # # pcd_camcoords.normals = o3d.utility.Vector3dVector(pcd_normals)
+                                    # # o3d.visualization.draw_geometries([pcd_camcoords])
+
+                                    # pcd_points = (pcd_points - min_bound) / obb_len
+                                    # # pcd_points_camcoords = (pcd_points_camcoords - min_bound_camcoords) / obb_len
+                                    # # print(np.all(pcd_points <= 1.0))
+                                    # # print(np.all(pcd_points >= -1.0))
+                                    # # print(np.all(pcd_normals <= 1.0))
+                                    # # print(np.all(pcd_normals >= -1.0))
+
+                                    # points[frame_idx] = np.concatenate((pcd_points, pcd_normals), axis=1)
+
+                                    min_bound = obb.get_min_bound()
+                                    max_bound = obb.get_max_bound()
+                                    bound_obb[frame_idx] = np.asarray([min_bound, max_bound])
+
+                                    # rotate & normalize point cloud
                                     pcd.rotate(obb.R.transpose(), obb.get_center())
                                     pcd_points = np.asarray(pcd.points)
-                                    min_bound = np.min(np.array(pcd_points), axis=0)
-                                    max_bound = np.max(np.array(pcd_points), axis=0)
-                                    bound_obb[frame_idx] = np.asarray([min_bound, max_bound])
-                                    obb_len = max_bound - min_bound + 1e-6
-
-                                    # min_bound_camcoords = cam_coords(min_bound)
-                                    # max_bound_camcoords = cam_coords(max_bound)
-                                    # bound_obb[frame_idx] = np.asarray([min_bound_camcoords, max_bound_camcoords])
-                                    # obb_len = max_bound_camcoords - min_bound_camcoords + 1e-6
-
-                                    pcd_normals = np.asarray(pcd.normals)
-                                    # pcd_points_camcoords = cam_coords(pcd_points)
-
-                                    # pcd.points = pcd_points_camcoords
-                                    # pcd.normals = pcd_normal_camcoords
-                                    # pcd_camcoords = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(pcd_points))
-                                    # pcd_camcoords.normals = o3d.utility.Vector3dVector(pcd_normals)
-                                    # o3d.visualization.draw_geometries([pcd_camcoords])
-
+                                    obb_len = (max_bound - min_bound)
                                     pcd_points = (pcd_points - min_bound) / obb_len
-                                    # pcd_points_camcoords = (pcd_points_camcoords - min_bound_camcoords) / obb_len
-                                    # print(np.all(pcd_points <= 1.0))
-                                    # print(np.all(pcd_points >= -1.0))
-                                    # print(np.all(pcd_normals <= 1.0))
-                                    # print(np.all(pcd_normals >= -1.0))
-
-                                    points[frame_idx] = np.concatenate((pcd_points, pcd_normals), axis=1)
+                                    points[frame_idx] = np.concatenate((pcd_points, np.asarray(pcd.normals)), axis=1)
     
                                     # rotate & normalize ground truth
                                     i_gt_xyz = gt_ws[frame_idx].reshape((21, 3))
