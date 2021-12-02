@@ -35,13 +35,13 @@ import trimesh
 
 subject_names = ["Subject_1", "Subject_2", "Subject_3", "Subject_4", "Subject_5", "Subject_6"]
 # subject_names = ["Subject_1"]
-# gesture_names = ['charge_cell_phone','clean_glasses','close_juice_bottle','close_liquid_soap','close_milk','close_peanut_butter','drink_mug','flip_pages','flip_sponge', 'give_card',
-# 'give_coin','handshake','high_five','light_candle','open_juice_bottle','open_letter','open_liquid_soap','open_milk','open_peanut_butter','open_soda_can','open_wallet','pour_juice_bottle'
-# 'pour_liquid_soap','pour_milk','pour_wine','prick','put_salt','put_sugar','put_tea_bag','read_letter','receive_coin', 'scoop_spoon','scratch_sponge','sprinkle','squeeze_paper',
-# 'squeeze_sponge','stir','take_letter_from_enveloppe','tear_paper','toast_wine','unfold_glasses','use_calculator','use_flash','wash_sponge','write']
+gesture_names = ['charge_cell_phone','clean_glasses','close_juice_bottle','close_liquid_soap','close_milk','close_peanut_butter','drink_mug','flip_pages','flip_sponge', 'give_card',
+'give_coin','handshake','high_five','light_candle','open_juice_bottle','open_letter','open_liquid_soap','open_milk','open_peanut_butter','open_soda_can','open_wallet','pour_juice_bottle'
+'pour_liquid_soap','pour_milk','pour_wine','prick','put_salt','put_sugar','put_tea_bag','read_letter','receive_coin', 'scoop_spoon','scratch_sponge','sprinkle','squeeze_paper',
+'squeeze_sponge','stir','take_letter_from_enveloppe','tear_paper','toast_wine','unfold_glasses','use_calculator','use_flash','wash_sponge','write']
 #gesture_names = ['put_salt','use_calculator','take_letter_from_enveloppe','open_juice_bottle','open_juice_bottle','open_letter','open_liquid_soap','open_milk','open_peanut_butter','open_soda_can','open_wallet']
-gesture_names = ['close_juice_bottle', 'close_liquid_soap', 'close_milk', 'open_juice_bottle', 'open_liquid_soap', 
-'open_milk', 'pour_juice_bottle', 'pour_liquid_soap', 'pour_milk', 'put_salt']
+# gesture_names_with_obj = ['close_juice_bottle', 'close_liquid_soap', 'close_milk', 'open_juice_bottle', 'open_liquid_soap', 
+# 'open_milk', 'pour_juice_bottle', 'pour_liquid_soap', 'pour_milk', 'put_salt']
 # gesture_names = ['put_salt']
 
 def generate_point_cloud_from_depth(depth_val,img_width,img_height,depth_threshold=550,is_visualize=False, voxel_size=3.0, dbscan_eps=8.0,use_voxel_downsample=True):
@@ -455,30 +455,32 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                                         'frame_idx': frame_idx
                                     }
 
-                                    obj_trans = get_obj_transform(sample, obj_trans_root)
-                                    mesh = object_infos[obj_map_with_action[gesture]]
-                                    verts = np.array(mesh.bounding_box_oriented.vertices) * 1000
+                                    if obj_map_with_action[gesture]:
+                                        obj_trans = get_obj_transform(sample, obj_trans_root)
+                                        mesh = object_infos[obj_map_with_action[gesture]]
+                                        verts = np.array(mesh.bounding_box_oriented.vertices) * 1000
 
-                                    hom_verts = np.concatenate([verts, np.ones([verts.shape[0], 1])], axis=1)
-                                    verts_trans = obj_trans.dot(hom_verts.T).T
-                                    verts_trans = verts_trans[:, :-1]
+                                        hom_verts = np.concatenate([verts, np.ones([verts.shape[0], 1])], axis=1)
+                                        verts_trans = obj_trans.dot(hom_verts.T).T
+                                        verts_trans = verts_trans[:, :-1]
 
-                                    # rotate & normalize
-                                    verts_trans = np.matmul(verts_trans, obb.R.transpose())
-                                    verts_trans = (verts_trans - min_bound) / obb_len
-                                    obj_xyz[frame_idx] = verts_trans
-                                    # verts_camcoords = cam_coords(verts_trans)
-                                    # verts_camcoords = (verts_camcoords - min_bound_camcoords) / obb_len
-                                    # print(np.all(verts_camcoords <= 1.0))
-                                    # print(np.all(verts_camcoords >= -1.0))
-                                    # obj_xyz[frame_idx] = verts_camcoords
+                                        # rotate & normalize
+                                        verts_trans = np.matmul(verts_trans, obb.R.transpose())
+                                        verts_trans = (verts_trans - min_bound) / obb_len
+                                        obj_xyz[frame_idx] = verts_trans
+                                        # verts_camcoords = cam_coords(verts_trans)
+                                        # verts_camcoords = (verts_camcoords - min_bound_camcoords) / obb_len
+                                        # print(np.all(verts_camcoords <= 1.0))
+                                        # print(np.all(verts_camcoords >= -1.0))
+                                        # obj_xyz[frame_idx] = verts_camcoords
 
                     np.save(os.path.join(save_seq_path, 'points.npy'), points)
                     np.save(os.path.join(save_seq_path, 'volume_rotate.npy'), volume_rotate)
                     np.save(os.path.join(save_seq_path, 'bound_obb.npy'), bound_obb)
                     np.save(os.path.join(save_seq_path, 'gt_xyz.npy'), gt_xyz)
                     np.save(os.path.join(save_seq_path, 'valid.npy'), valid)
-                    np.save(os.path.join(save_seq_path, 'obj_xyz.npy'), obj_xyz)
+                    if obj_map_with_action[gesture]:
+                        np.save(os.path.join(save_seq_path, 'obj_xyz.npy'), obj_xyz)
             except Exception as e:
                 print(e)
 
