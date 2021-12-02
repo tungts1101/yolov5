@@ -322,34 +322,71 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                         # Inference
                         pred = model(img, augment=augment)[0]
                         # NMS
-                        pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=1)[0]
+                        # pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=1)[0]
+                        pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=1000)
                         if len(pred):
-                            pred[:, :4] = scale_coords(img.shape[2:], pred[:, :4], im0s.shape).round()
-                            gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-                            for *xyxy, _, _ in reversed(pred):
-                                xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                                # im0 = plot_one_box(xyxy, im0s, label='Hand', color=colors(0, True), line_width=2)
-                                # cv2.imshow("img", im0)
-                                # cv2.waitKey(0)
+                            depth_path = path.replace('color', 'depth')
+                            depth_path = depth_path.replace('jpeg', 'png')
+
+                            depth_path = depth_path.replace('\\', '/')
+
+                            depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+                            img_height, img_width = depth_img.shape
+
+                            crop_depth = None
+                            depth_val = None
+
+                            for i, det in enumerate(pred):
+                                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0s.shape).round()
+                                gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+                                for *xyxy, _, _ in reversed(det):
+                                    xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                                    # im0 = plot_one_box(xyxy, im0s, label='Hand', color=colors(0, True), line_width=2)
+                                    # cv2.imshow("img", im0)
+                                    # cv2.waitKey(0)
+                                    x_center_norm = xywh[0]
+                                    y_center_norm = xywh[1]
+                                    x_width_norm = xywh[2]
+                                    y_height_norm = xywh[3]
+        
+                                    center = (img_width * x_center_norm, img_height * y_center_norm)
+                                    start_point = (center[0] - img_width * x_width_norm / 2, center[1] - img_height * y_height_norm / 2)
+                                    end_point = (center[0] + img_width * x_width_norm / 2, center[1] + img_height * y_height_norm / 2)
+        
+                                    i_crop_depth = depth_img[int(start_point[1]):int(end_point[1]), int(start_point[0]):int(end_point[0])].copy()
+                                    i_depth_val = float(depth_img[int((start_point[1] + end_point[1])/2), int((start_point[0] + end_point[0])/2)])
+                                    if depth_val is None or depth_val > i_depth_val:
+                                        crop_depth = i_crop_depth
+                                        depth_val = i_depth_val
+                            
+                            if crop_depth is not None:
+                        # if len(pred):
+                        #     pred[:, :4] = scale_coords(img.shape[2:], pred[:, :4], im0s.shape).round()
+                        #     gn = torch.tensor(im0s.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+                        #     for *xyxy, _, _ in reversed(pred):
+                        #         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                        #         # im0 = plot_one_box(xyxy, im0s, label='Hand', color=colors(0, True), line_width=2)
+                        #         # cv2.imshow("img", im0)
+                        #         # cv2.waitKey(0)
     
-                                depth_path = path.replace('color', 'depth')
-                                depth_path = depth_path.replace('jpeg', 'png')
+                        #         depth_path = path.replace('color', 'depth')
+                        #         depth_path = depth_path.replace('jpeg', 'png')
     
-                                depth_path = depth_path.replace('\\', '/')
+                        #         depth_path = depth_path.replace('\\', '/')
     
-                                depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
-                                img_height, img_width = depth_img.shape
+                        #         depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
+                        #         img_height, img_width = depth_img.shape
     
-                                x_center_norm = xywh[0]
-                                y_center_norm = xywh[1]
-                                x_width_norm = xywh[2]
-                                y_height_norm = xywh[3]
+                        #         x_center_norm = xywh[0]
+                        #         y_center_norm = xywh[1]
+                        #         x_width_norm = xywh[2]
+                        #         y_height_norm = xywh[3]
     
-                                center = (img_width * x_center_norm, img_height * y_center_norm)
-                                start_point = (center[0] - img_width * x_width_norm / 2, center[1] - img_height * y_height_norm / 2)
-                                end_point = (center[0] + img_width * x_width_norm / 2, center[1] + img_height * y_height_norm / 2)
+                        #         center = (img_width * x_center_norm, img_height * y_center_norm)
+                        #         start_point = (center[0] - img_width * x_width_norm / 2, center[1] - img_height * y_height_norm / 2)
+                        #         end_point = (center[0] + img_width * x_width_norm / 2, center[1] + img_height * y_height_norm / 2)
     
-                                crop_depth = depth_img[int(start_point[1]):int(end_point[1]), int(start_point[0]):int(end_point[0])].copy()
+                        #         crop_depth = depth_img[int(start_point[1]):int(end_point[1]), int(start_point[0]):int(end_point[0])].copy()
     
                                 pcd, obb = generate_point_cloud_from_depth(crop_depth, img_width, img_height)
     
