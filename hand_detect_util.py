@@ -302,7 +302,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                     volume_rotate = np.zeros((frame_num, 3, 3)).astype(np.float32) # rotation matrix
                     bound_obb = np.zeros((frame_num, 2, 3)).astype(np.float32) # min bound & max bound of rotation matrix
                     gt_xyz = np.zeros((frame_num, 63)).astype(np.float32)
-                    obj_xyz = np.zeros((frame_num, 8, 3)).astype(np.float32) # coordinate of obj
+                    obj_xyz = np.zeros((frame_num, 8, 3)).astype(np.float32) if gesture in obj_map_with_action else None # coordinate of obj
                     valid = [False for _ in range(frame_num)]
     
                     image_dir = os.path.join(video_dir, subject, gesture, seq_idx, 'color')
@@ -455,7 +455,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                                         'frame_idx': frame_idx
                                     }
 
-                                    if obj_map_with_action[gesture]:
+                                    if obj_xyz is not None:
                                         obj_trans = get_obj_transform(sample, obj_trans_root)
                                         mesh = object_infos[obj_map_with_action[gesture]]
                                         verts = np.array(mesh.bounding_box_oriented.vertices) * 1000
@@ -479,7 +479,7 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                     np.save(os.path.join(save_seq_path, 'bound_obb.npy'), bound_obb)
                     np.save(os.path.join(save_seq_path, 'gt_xyz.npy'), gt_xyz)
                     np.save(os.path.join(save_seq_path, 'valid.npy'), valid)
-                    if obj_map_with_action[gesture]:
+                    if obj_xyz is not None:
                         np.save(os.path.join(save_seq_path, 'obj_xyz.npy'), obj_xyz)
             except Exception as e:
                 print(e)
