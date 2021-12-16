@@ -397,12 +397,12 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
                                     valid[frame_idx] = True
                                     volume_rotate[frame_idx] = obb.R
 
-                                    # pcd.rotate(obb.R.transpose(), obb.get_center())
-                                    # pcd_points = np.asarray(pcd.points)
-                                    # min_bound = np.min(np.array(pcd_points), axis=0)
-                                    # max_bound = np.max(np.array(pcd_points), axis=0)
-                                    # bound_obb[frame_idx] = np.asarray([min_bound, max_bound])
-                                    # obb_len = max_bound - min_bound + 1e-6
+                                    pcd.rotate(obb.R.transpose(), obb.get_center())
+                                    pcd_points = np.asarray(pcd.points)
+                                    min_bound = np.min(np.array(pcd_points), axis=0)
+                                    max_bound = np.max(np.array(pcd_points), axis=0)
+                                    bound_obb[frame_idx] = np.asarray([min_bound, max_bound])
+                                    obb_len = max_bound - min_bound + 1e-6
 
                                     # # min_bound_camcoords = cam_coords(min_bound)
                                     # # max_bound_camcoords = cam_coords(max_bound)
@@ -427,15 +427,18 @@ def run(weights='yolov5s.pt',  # model.pt path(s)
 
                                     # points[frame_idx] = np.concatenate((pcd_points, pcd_normals), axis=1)
 
-                                    min_bound = obb.get_min_bound()
-                                    max_bound = obb.get_max_bound()
-                                    bound_obb[frame_idx] = np.asarray([min_bound, max_bound])
+                                    # min_bound = obb.get_min_bound()
+                                    # max_bound = obb.get_max_bound()
+                                    # bound_obb[frame_idx] = np.asarray([min_bound, max_bound])
 
                                     # rotate & normalize point cloud
-                                    pcd.rotate(obb.R.transpose(), obb.get_center())
-                                    pcd_points = np.asarray(pcd.points)
-                                    obb_len = (max_bound - min_bound)
+                                    # pcd.rotate(obb.R.transpose(), obb.get_center())
+                                    # pcd_points = np.asarray(pcd.points)
+                                    # obb_len = (max_bound - min_bound)
                                     pcd_points = (pcd_points - min_bound) / obb_len
+                                    print(np.all(pcd_points <= 1.0))
+                                    print(np.all(pcd_points >= -1.0))
+                                    
                                     points[frame_idx] = np.concatenate((pcd_points, np.asarray(pcd.normals)), axis=1)
     
                                     # rotate & normalize ground truth
